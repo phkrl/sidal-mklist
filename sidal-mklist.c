@@ -1,9 +1,10 @@
-//цель: выдать сортированный список скриптов по зависимостям. Добавить опции для выделения зависимых и независимых служб
+#include <dirent.h>
 #include "utils.h"
 #include <unistd.h>
-
+//перед добавлением зависимых служб прочесать availdir и искать в этом списке
 #define START 1<<0
 #define STOP 1<<1
+#define FULL 1<<2
 
 typedef struct
 {
@@ -15,31 +16,48 @@ typedef struct
 	int numprovide;
 } service;
 
+static void checkfull();
 static int checksorted(service *list, int n);
+static service init(char *name);
 static void sort(service *list, int n, int begin);
 static void usage(char *name);
 
-int mode=0;
+static int mode=0;
+static char *rundir="/etc/sidal/run", *availdir="/etc/sidal/avail";
+static service *list;
+static int nsvcs=0;
 
 int
 main(int argc, char *argv[])
 {
-	char **svcs=(char**)malloc(0), *dir="/etc/sidal/run";
-	char buf[256];
-	service *list;
-	int nsvcs=0, i, j, k;
-	FILE *pipe;
+	char **svcs=(char**)malloc(0);
+	int i, j, k;
 	for(i=1;i<argc;i+=1) {
 		if (argv[i][0]=='-') {
+			j=0;
 			if (!strcmp(argv[i],"--help") || strchr(argv[i],'h')) {
 				usage(argv[0]);
-			} else if (strchr(argv[i],'s') || !strcmp(argv[i],"--start")) {
+			}
+			if (strchr(argv[i],'s') || !strcmp(argv[i],"--start")) {
 				mode=(mode&!STOP)|START;
-			} else if (strchr(argv[i],'k') || !strcmp(argv[i],"--stop")) {
+				j=1;
+			}
+			if (strchr(argv[i],'k') || !strcmp(argv[i],"--stop")) {
 				mode=(mode&!START)|STOP;
+				j=1;
+			}
+			if (strchr(argv[i],'a')) {
+				availdir=argv[++i];
+				j=1;
 			} else if (strchr(argv[i],'d')) {
-				dir=argv[++i];
-			} else {
+				rundir=argv[++i];
+				j=1;
+			}
+			if (strchr(argv[i],'f')) {
+				mode=mode|FULL;
+				j=1;
+			} 
+			if (!j) {
 				usage(argv[0]);
 			}
 		} else {
@@ -52,44 +70,12 @@ main(int argc, char *argv[])
 		die("no services given\n");
 	}
 	list=(service*)malloc(nsvcs*sizeof(service));
-	for(i=0;i<nsvcs;i+=1) {
-		list[i].name=svcs[i];
-	}
 	
 	for(i=0;i<nsvcs;i+=1) {
-		/* get info about dependencies */
-		if (!(pipe=fopen(smprintf("%s/%s",dir,svcs[i]),"r"))) {
-			/* if these services are not in /etc/sidal/run, mark them to run in the end */
-			list[i].deps=0;
-			list[i].numdeps=-1;
-			continue;
-		} else {
-			fclose(pipe);
-			pipe=popen(smprintf("%s/%s depend",dir,svcs[i]),"r");
-			list[i].deps=(char**)malloc(0);
-			list[i].numdeps=0;
-		}
-		while(fscanf(pipe,"%s",buf)!=EOF) {
-			list[i].deps=(char**)realloc(list[i].deps,(list[i].numdeps+1)*sizeof(char*));
-			list[i].deps[list[i].numdeps]=smprintf("%s",buf);
-			list[i].numdeps+=1;
-		}
-		pclose(pipe);
-		/* get aliases */
-		if (!(pipe=popen(smprintf("%s/%s provide",dir,svcs[i]),"r"))) {
-			list[i].provide=0;
-			list[i].numprovide=-1;
-			continue;
-		} else {
-			list[i].provide=(char**)malloc(0);
-			list[i].numprovide=0;
-		}
-		while(fscanf(pipe,"%s",buf)!=EOF) {
-			list[i].provide=(char**)realloc(list[i].provide,(list[i].numprovide+1)*sizeof(char*));
-			list[i].provide[list[i].numprovide]=smprintf("%s",buf);
-			list[i].numprovide+=1;
-		}
-		pclose(pipe);
+		list[i]=init(svcs[i]);
+	}
+	if (mode&FULL) {
+		checkfull();
 	}
 	j=-1;
 	k=0;
@@ -103,6 +89,7 @@ main(int argc, char *argv[])
 		}
 		else k=0;
 		j=i;
+		
 		sort(list, nsvcs, i);
 	}
 	if (mode&START) for(i=0;i<nsvcs;i+=1) printf("%s\n",list[i].name);
@@ -116,11 +103,107 @@ main(int argc, char *argv[])
 	return 0;
 }
 
+void
+checkfull()
+{
+	int i, j, k, l, nrun, navail;
+	int provided;
+	service *run, *avail;
+	DIR *tolist;
+	struct dirent *srv;
+	
+	nrun=0;
+	navail=0;
+	run=(service*)malloc(0);
+	avail=(service*)malloc(0);
+	tolist=opendir(rundir);
+	readdir(tolist);/* skip . and .. */
+	readdir(tolist);
+	while((srv=readdir(tolist))) {
+		nrun+=1;
+		run=(service*)realloc(run,sizeof(service)*nrun);
+		run[nrun-1]=init(srv->d_name);
+	}
+	closedir(tolist);
+	tolist=opendir(availdir);
+	readdir(tolist);/* skip . and .. */
+	readdir(tolist);
+	while((srv=readdir(tolist))) {
+		navail+=1;
+		avail=(service*)realloc(avail,sizeof(service)*navail);
+		avail[navail-1]=init(srv->d_name);
+	}
+	closedir(tolist);
+	for (i=0;i<nsvcs;i+=1) {
+		for (j=0;j<list[i].numdeps;j+=1) {
+			provided=0;
+			for (k=0;k<nsvcs;k+=1) {
+				if (!strcmp(list[k].name,list[i].deps[j])) {
+					provided=1;
+					break;
+				}
+				else {
+					for (l=0;l<list[k].numprovide;l+=1) {
+						if (!strcmp(list[k].provide[l],list[i].deps[j])) {
+							provided=1;
+							break;
+							break;
+						}
+					}
+				}
+			}
+			if (provided) continue;
+			if (!provided) {
+				for (k=0;k<nrun;k+=1) {
+					if (!strcmp(list[i].deps[j],run[k].name)) {
+						provided=1;
+					}
+					else {
+						for (l=0;l<run[k].numprovide;l+=1) {
+							if (!strcmp(run[k].provide[l],list[i].deps[j])) {
+								provided=1;
+								break;
+							}
+						}
+					}
+					if (provided) {
+						nsvcs+=1;
+						list=(service*)realloc(list,nsvcs*sizeof(service));
+						list[nsvcs-1]=init(run[k].name);
+						break;
+					}
+				}
+			}
+			if (!provided) {
+				for (k=0;k<navail;k+=1) {
+					if (!strcmp(list[i].deps[j],avail[k].name)) {
+						nsvcs+=1;
+						list=(service*)realloc(list,nsvcs*sizeof(service));
+						list[nsvcs-1]=init(avail[k].name);
+					}
+					else {
+						for (l=0;l<avail[k].numprovide;l+=1) {
+							if (!strcmp(avail[k].provide[l],list[i].deps[j])) {
+								nsvcs+=1;
+								list=(service*)realloc(list,nsvcs*sizeof(service));
+								list[nsvcs-1]=init(avail[k].name);
+								
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	free(run);
+	free(avail);
+}
+
 int
 checksorted(service *list, int n)
 {
 	int i, j, k, l;
-	for (i=0;i<n-1;i+=1)
+	for (i=0;i<n-1;i+=1) {
 		if (list[i].numdeps<0) {
 			for (j=i+1;j<n;j+=1) {
 				if (list[j].numdeps>=0) {
@@ -138,7 +221,58 @@ checksorted(service *list, int n)
 				}
 			}
 		}
+	}
 	return n;
+}
+
+service
+init(char *name)
+{
+	char buf[256];
+	FILE *pipe;
+	service ret;
+	char *dir=NULL;
+	
+	ret.name=smprintf("%s",name);
+	/* get info about dependencies */
+	if ((pipe=fopen(smprintf("%s/%s",rundir,name),"r"))) {
+		dir=rundir;
+	} else if ((pipe=fopen(smprintf("%s/%s",availdir,name),"r"))) {
+		dir=availdir;
+	} else {
+	/* if these services are not in /etc/sidal/run, mark them to run in the end */
+		ret.deps=0;
+		ret.numdeps=-1;
+		ret.provide=0;
+		ret.numprovide=-1;
+	}
+	if (pipe) {
+		fclose(pipe);
+		pipe=popen(smprintf("%s/%s depend",dir,name),"r");
+		ret.deps=(char**)malloc(0);
+		ret.numdeps=0;
+		while(fscanf(pipe,"%s",buf)!=EOF) {
+			ret.deps=(char**)realloc(ret.deps,(ret.numdeps+1)*sizeof(char*));
+			ret.deps[ret.numdeps]=smprintf("%s",buf);
+			ret.numdeps+=1;
+		}
+		pclose(pipe);
+	}
+	
+	/* get aliases */
+	if (dir) {
+		pipe=popen(smprintf("%s/%s provide",dir,name),"r");
+		ret.provide=(char**)malloc(0);
+		ret.numprovide=0;
+		while(fscanf(pipe,"%s",buf)!=EOF) {
+			ret.provide=(char**)realloc(ret.provide,(ret.numprovide+1)*sizeof(char*));
+			ret.provide[ret.numprovide]=smprintf("%s",buf);
+			ret.numprovide+=1;
+		}
+		pclose(pipe);
+	}
+	
+	return ret;
 }
 
 void
@@ -176,5 +310,5 @@ sort(service *list, int n, int begin)
 void
 usage(char *name)
 {
-	die("usage: %s [-sk] [-d directory] ...\n",name);
+	die("usage: %s [-skf] [-ad directory] ...\n",name);
 }
