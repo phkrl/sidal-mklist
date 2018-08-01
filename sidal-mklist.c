@@ -11,9 +11,6 @@ typedef struct
 	char *name;
 	char **deps;
 	int numdeps;
-	/* aliases for service (like udev or nldev should provide dev) */
-	char **provide;
-	int numprovide;
 } service;
 
 static void checkfull();
@@ -106,7 +103,7 @@ main(int argc, char *argv[])
 void
 checkfull()
 {
-	int i, j, k, l, nrun, navail;
+	int i, j, k, nrun, navail;
 	int provided;
 	service *run, *avail;
 	DIR *tolist;
@@ -142,29 +139,12 @@ checkfull()
 					provided=1;
 					break;
 				}
-				else {
-					for (l=0;l<list[k].numprovide;l+=1) {
-						if (!strcmp(list[k].provide[l],list[i].deps[j])) {
-							provided=1;
-							break;
-							break;
-						}
-					}
-				}
 			}
 			if (provided) continue;
 			if (!provided) {
 				for (k=0;k<nrun;k+=1) {
 					if (!strcmp(list[i].deps[j],run[k].name)) {
 						provided=1;
-					}
-					else {
-						for (l=0;l<run[k].numprovide;l+=1) {
-							if (!strcmp(run[k].provide[l],list[i].deps[j])) {
-								provided=1;
-								break;
-							}
-						}
 					}
 					if (provided) {
 						nsvcs+=1;
@@ -181,16 +161,6 @@ checkfull()
 						list=(service*)realloc(list,nsvcs*sizeof(service));
 						list[nsvcs-1]=init(avail[k].name);
 					}
-					else {
-						for (l=0;l<avail[k].numprovide;l+=1) {
-							if (!strcmp(avail[k].provide[l],list[i].deps[j])) {
-								nsvcs+=1;
-								list=(service*)realloc(list,nsvcs*sizeof(service));
-								list[nsvcs-1]=init(avail[k].name);
-								
-							}
-						}
-					}
 				}
 			}
 		}
@@ -202,7 +172,7 @@ checkfull()
 int
 checksorted(service *list, int n)
 {
-	int i, j, k, l;
+	int i, j, k;
 	for (i=0;i<n-1;i+=1) {
 		if (list[i].numdeps<0) {
 			for (j=i+1;j<n;j+=1) {
@@ -214,10 +184,6 @@ checksorted(service *list, int n)
 			for (k=0;k<list[i].numdeps;k+=1) {
 				if (!strcmp(list[j].name,list[i].deps[k])) {
 					return i;
-				}
-				for (l=0;l<list[j].numprovide;l+=1)
-					if (!strcmp(list[j].provide[l],list[i].deps[k])) {
-						return i;
 				}
 			}
 		}
@@ -243,8 +209,6 @@ init(char *name)
 	/* if these services are not in /etc/sidal/run, mark them to run in the end */
 		ret.deps=0;
 		ret.numdeps=-1;
-		ret.provide=0;
-		ret.numprovide=-1;
 	}
 	if (pipe) {
 		fclose(pipe);
@@ -259,26 +223,13 @@ init(char *name)
 		pclose(pipe);
 	}
 	
-	/* get aliases */
-	if (dir) {
-		pipe=popen(smprintf("%s/%s provide",dir,name),"r");
-		ret.provide=(char**)malloc(0);
-		ret.numprovide=0;
-		while(fscanf(pipe,"%s",buf)!=EOF) {
-			ret.provide=(char**)realloc(ret.provide,(ret.numprovide+1)*sizeof(char*));
-			ret.provide[ret.numprovide]=smprintf("%s",buf);
-			ret.numprovide+=1;
-		}
-		pclose(pipe);
-	}
-	
 	return ret;
 }
 
 void
 sort(service *list, int n, int begin)
 {
-	int i, j, k, l;
+	int i, j, k;
 	service sw;
 	for (i=begin;i<n-1;i+=1) {
 		if (list[i].numdeps<0) {
@@ -295,12 +246,6 @@ sort(service *list, int n, int begin)
 					sw=list[i];
 					list[i]=list[j];
 					list[j]=sw;
-				} else for (l=0;l<list[j].numprovide;l+=1) {
-					if (!strcmp(list[j].provide[l],list[i].deps[k])) {
-						sw=list[i];
-						list[i]=list[j];
-						list[j]=sw;
-					}
 				}
 			}
 		}
