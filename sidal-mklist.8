@@ -5,7 +5,7 @@ sidal-mklist \- tool to generate list of services for sidal
 .B sidal-mklist
 .RB [-fks]
 .RB [
-.RB -ad 
+.RB -adr 
 .RI dir
 .RB ]
 .RB services
@@ -25,6 +25,9 @@ add services which are needed to work but are not in the list
 .TP
 .B k
 create list to kill services
+.TP
+.BI r " dir"
+change dir where are placed services which have already started. Default: /run/sidal
 .TP
 .B s
 create list to start services

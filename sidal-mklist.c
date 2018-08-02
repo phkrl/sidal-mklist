@@ -20,7 +20,7 @@ static void sort(service *list, int n, int begin);
 static void usage(char *name);
 
 static int mode=0;
-static char *rundir="/etc/sidal/run", *availdir="/etc/sidal/avail";
+static char *rundir="/etc/sidal/run", *availdir="/etc/sidal/avail", *servicedir="/run/sidal";
 static service *list;
 static int nsvcs=0;
 
@@ -48,6 +48,9 @@ main(int argc, char *argv[])
 				j=1;
 			} else if (strchr(argv[i],'d')) {
 				rundir=argv[++i];
+				j=1;
+			} else if (strchr(argv[i],'r')) {
+				servicedir=argv[++i];
 				j=1;
 			}
 			if (strchr(argv[i],'f')) {
@@ -103,18 +106,33 @@ main(int argc, char *argv[])
 void
 checkfull()
 {
-	int i, j, k, nrun, navail;
+	int i, j, k, nrun, navail, nstarted;
 	int provided;
-	service *run, *avail;
+	service *run, *avail, *started;
 	DIR *tolist;
 	struct dirent *srv;
 	
 	nrun=0;
 	navail=0;
+	nstarted=0;
 	run=(service*)malloc(0);
 	avail=(service*)malloc(0);
+	started=(service*)malloc(0);
+	/* create list of started services */
+	tolist=opendir(servicedir);
+	/* skip . and .. */
+	readdir(tolist);
+	readdir(tolist);
+	while((srv=readdir(tolist))) {
+		nstarted+=1;
+		started=(service*)realloc(started,sizeof(service)*nstarted);
+		started[nstarted-1]=init(srv->d_name);
+	}
+	closedir(tolist);
+	/* create list of services expected to start */
 	tolist=opendir(rundir);
-	readdir(tolist);/* skip . and .. */
+	/* skip . and .. */
+	readdir(tolist);
 	readdir(tolist);
 	while((srv=readdir(tolist))) {
 		nrun+=1;
@@ -122,8 +140,10 @@ checkfull()
 		run[nrun-1]=init(srv->d_name);
 	}
 	closedir(tolist);
+	/* create list of available services */
 	tolist=opendir(availdir);
-	readdir(tolist);/* skip . and .. */
+	/* skip . and .. */
+	readdir(tolist);
 	readdir(tolist);
 	while((srv=readdir(tolist))) {
 		navail+=1;
@@ -133,6 +153,7 @@ checkfull()
 	closedir(tolist);
 	for (i=0;i<nsvcs;i+=1) {
 		for (j=0;j<list[i].numdeps;j+=1) {
+			/* check if services are provided */
 			provided=0;
 			for (k=0;k<nsvcs;k+=1) {
 				if (!strcmp(list[k].name,list[i].deps[j])) {
@@ -140,13 +161,19 @@ checkfull()
 					break;
 				}
 			}
-			if (provided) continue;
+			if (!provided) {
+				for (k=0;k<nstarted;k+=1) {
+					if (!strcmp(started[k].name,list[i].deps[j])) {
+						provided=1;
+						break;
+					}
+				}
+			}
+			/* if not provided, find and add all needed from rundir*/
 			if (!provided) {
 				for (k=0;k<nrun;k+=1) {
 					if (!strcmp(list[i].deps[j],run[k].name)) {
 						provided=1;
-					}
-					if (provided) {
 						nsvcs+=1;
 						list=(service*)realloc(list,nsvcs*sizeof(service));
 						list[nsvcs-1]=init(run[k].name);
@@ -154,17 +181,20 @@ checkfull()
 					}
 				}
 			}
+			/* if nothing is in rundir, add from availdir */
 			if (!provided) {
 				for (k=0;k<navail;k+=1) {
 					if (!strcmp(list[i].deps[j],avail[k].name)) {
 						nsvcs+=1;
 						list=(service*)realloc(list,nsvcs*sizeof(service));
 						list[nsvcs-1]=init(avail[k].name);
+						break;
 					}
 				}
 			}
 		}
 	}
+	free(started);
 	free(run);
 	free(avail);
 }
@@ -255,5 +285,5 @@ sort(service *list, int n, int begin)
 void
 usage(char *name)
 {
-	die("usage: %s [-skf] [-ad directory] ...\n",name);
+	die("usage: %s [-skf] [-adr directory] ...\n",name);
 }
