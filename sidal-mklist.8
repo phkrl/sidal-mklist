@@ -1,0 +1,36 @@
+.TH SIDAL-MKLIST 8 sidal-mklist\-VERSION
+.SH NAME
+sidal-mklist \- tool to generate list of services for sidal
+.SH SYNOPSIS
+.B sidal-mklist
+.RB [-fks]
+.RB [
+.RB -ad 
+.RI dir
+.RB ]
+.RB services
+.SH DESCRIPTION
+.B sidal-mklist
+reads dependencies of given services and sorts them according to this info. It can also find services which are not mentioned in the list but are needed for some of services.
+.SH OPTIONS
+.TP
+.BI a " dir"
+change avail dir. Default: /etc/sidal/avail
+.TP
+.BI d " dir"
+change run dir. Default: /etc/sidal/run
+.TP
+.B f
+add services which are needed to work but are not in the list
+.TP
+.B k
+create list to kill services
+.TP
+.B s
+create list to start services
+.SH AUTHORS
+See the LICENSE file for the authors.
+.SH LICENSE
+See the LICENSE file for the terms of redistribution.
+.SH SEE ALSO
+.BR sidal (8)

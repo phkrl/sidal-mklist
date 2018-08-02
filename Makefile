@@ -25,8 +25,12 @@ install: all
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	cp -f sidal-mklist $(DESTDIR)$(PREFIX)/bin
 	chmod 755 $(DESTDIR)$(PREFIX)/bin/sidal-mklist
+	mkdir -p $(DESTDIR)$(MANPREFIX)/man8
+	sed "s/VERSION/$(VERSION)/g" < sidal-mklist.8 > $(DESTDIR)$(MANPREFIX)/man8/sidal-mklist.8
+	chmod 644 $(DESTDIR)$(MANPREFIX)/man8/sidal-mklist.8
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/sidal-mklist
+	rm -f $(DESTDIR)$(MANPREFIX)/man8/sidal-mklist.8
 
 .PHONY: all options clean install uninstall
