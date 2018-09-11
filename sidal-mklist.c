@@ -1,10 +1,10 @@
 #include <dirent.h>
 #include "utils.h"
 #include <unistd.h>
-//перед добавлением зависимых служб прочесать availdir и искать в этом списке
 #define START 1<<0
 #define STOP 1<<1
 #define FULL 1<<2
+#define LEVELLED 1<<3
 
 typedef struct
 {
@@ -14,15 +14,17 @@ typedef struct
 } service;
 
 static void checkfull();
-static int checksorted(service *list, int n);
+static int checksorted();
 static service init(char *name);
-static void sort(service *list, int n, int begin);
+static void mklevels();
+static void sort(int begin);
 static void usage(char *name);
 
 static int mode=0;
 static char *rundir="/etc/sidal/run", *availdir="/etc/sidal/avail", *servicedir="/run/sidal";
 static service *list;
 static int nsvcs=0;
+static int nlevels=0, *levels=NULL;
 
 int
 main(int argc, char *argv[])
@@ -43,18 +45,22 @@ main(int argc, char *argv[])
 				mode=(mode&!START)|STOP;
 				j=1;
 			}
-			if (strchr(argv[i],'a')) {
+			if (strchr(argv[i],'a') || !strcmp(argv[i],"--availdir")) {
 				availdir=argv[++i];
 				j=1;
-			} else if (strchr(argv[i],'d')) {
+			} else if (strchr(argv[i],'d') || !strcmp(argv[i],"--rundir")) {
 				rundir=argv[++i];
 				j=1;
-			} else if (strchr(argv[i],'r')) {
+			} else if (strchr(argv[i],'r') || !strcmp(argv[i],"--activedir")) {
 				servicedir=argv[++i];
 				j=1;
 			}
-			if (strchr(argv[i],'f')) {
+			if (strchr(argv[i],'f') || !strcmp(argv[i],"--full")) {
 				mode=mode|FULL;
+				j=1;
+			}
+			if (strchr(argv[i],'l') || !strcmp(argv[i],"--levelled")) {
+				mode=mode|LEVELLED;
 				j=1;
 			} 
 			if (!j) {
@@ -79,7 +85,7 @@ main(int argc, char *argv[])
 	}
 	j=-1;
 	k=0;
-	while((i=checksorted(list,nsvcs))<nsvcs) {
+	while((i=checksorted())<nsvcs) {
 		if (i==j) {
 			k+=1;
 			if (k==nsvcs) {
@@ -90,10 +96,34 @@ main(int argc, char *argv[])
 		else k=0;
 		j=i;
 		
-		sort(list, nsvcs, i);
+		sort(i);
 	}
-	if (mode&START) for(i=0;i<nsvcs;i+=1) printf("%s\n",list[i].name);
-	else for(i=nsvcs-1;i>=0;i-=1) printf("%s\n",list[i].name);
+	
+	if (mode&LEVELLED) mklevels();
+	if (mode&START) {
+		j=0;
+		for(i=0;i<nsvcs;i+=1) {
+			printf("%s ",list[i].name);
+			if (mode&LEVELLED) {
+				if (i==levels[j]) {
+					printf("\n");
+					j+=1;
+				}
+			}
+		}
+	} else {
+		j=nlevels-1;
+		for(i=nsvcs-1;i>=0;i-=1) {
+			printf("%s ",list[i].name);
+			if (mode&LEVELLED) {
+				if (i==levels[j]) {
+					printf("\n");
+					j-=1;
+				}
+			}
+		}
+	}
+	printf("\n");
 	for(i=0;i<nsvcs;i+=1) {
 		for(j=0;j<list[i].numdeps;j+=1)
 			free(list[i].deps[j]);
@@ -200,17 +230,17 @@ checkfull()
 }
 
 int
-checksorted(service *list, int n)
+checksorted()
 {
 	int i, j, k;
-	for (i=0;i<n-1;i+=1) {
+	for (i=0;i<nsvcs-1;i+=1) {
 		if (list[i].numdeps<0) {
-			for (j=i+1;j<n;j+=1) {
+			for (j=i+1;j<nsvcs;j+=1) {
 				if (list[j].numdeps>=0) {
 					return i;
 				}
 			}
-		} else for (j=i+1;j<n;j+=1) {
+		} else for (j=i+1;j<nsvcs;j+=1) {
 			for (k=0;k<list[i].numdeps;k+=1) {
 				if (!strcmp(list[j].name,list[i].deps[k])) {
 					return i;
@@ -218,7 +248,7 @@ checksorted(service *list, int n)
 			}
 		}
 	}
-	return n;
+	return nsvcs;
 }
 
 service
@@ -257,20 +287,43 @@ init(char *name)
 }
 
 void
-sort(service *list, int n, int begin)
+mklevels()
+{
+	int i, j, k;
+	levels=(int*)malloc(sizeof(int));
+	nlevels=1;
+	for (i=0;i<nsvcs-1;i+=1) {
+		for (j=i+1;j<nsvcs;j+=1) {
+			for (k=0;k<list[j].numdeps;k+=1) {
+				if (!strcmp(list[j].deps[k],list[i].name)) {
+					i=j;
+					levels[nlevels-1]=i-1;
+					nlevels+=1;
+					levels=(int*)realloc(levels,nlevels*sizeof(int));
+					break;
+					break;
+				}
+			}
+		}
+	}
+	levels[nlevels-1]=nsvcs-1;
+}
+
+void
+sort(int begin)
 {
 	int i, j, k;
 	service sw;
-	for (i=begin;i<n-1;i+=1) {
+	for (i=begin;i<nsvcs-1;i+=1) {
 		if (list[i].numdeps<0) {
-			for (j=n-1;j>=i;j-=1)
+			for (j=nsvcs-1;j>=i;j-=1)
 				if (list[j].numdeps>=0)
 					break;
 			sw=list[i];
 			list[i]=list[j];
 			list[j]=sw;
 		}
-		for (j=i+1;j<n;j+=1) {
+		for (j=i+1;j<nsvcs;j+=1) {
 			for (k=0;k<list[i].numdeps;k+=1) {
 				if (!strcmp(list[j].name,list[i].deps[k])) {
 					sw=list[i];
@@ -285,5 +338,5 @@ sort(service *list, int n, int begin)
 void
 usage(char *name)
 {
-	die("usage: %s [-skf] [-adr directory] ...\n",name);
+	die("usage: %s [-skfl] [-adr directory] ...\n",name);
 }
