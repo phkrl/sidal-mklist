@@ -99,28 +99,25 @@ main(int argc, char *argv[])
 		sort(i);
 	}
 	
-	if (mode&LEVELLED) mklevels();
+	if (mode&LEVELLED)
+		mklevels();
 	if (mode&START) {
 		j=0;
 		for(i=0;i<nsvcs;i+=1) {
-			printf("%s ",list[i].name);
-			if (mode&LEVELLED) {
-				if (i==levels[j]) {
-					printf("\n");
-					j+=1;
-				}
+			if (mode&LEVELLED && i==levels[j]) {
+				printf("\n");
+				j+=1;
 			}
+			printf("%s ",list[i].name);
 		}
 	} else {
 		j=nlevels-1;
 		for(i=nsvcs-1;i>=0;i-=1) {
-			printf("%s ",list[i].name);
-			if (mode&LEVELLED) {
-				if (i==levels[j]) {
-					printf("\n");
-					j-=1;
-				}
+			if (mode&LEVELLED && i==levels[j]) {
+				printf("\n");
+				j-=1;
 			}
+			printf("%s ",list[i].name);
 		}
 	}
 	printf("\n");
@@ -292,21 +289,21 @@ mklevels()
 	int i, j, k;
 	levels=(int*)malloc(sizeof(int));
 	nlevels=1;
-	for (i=0;i<nsvcs-1;i+=1) {
-		for (j=i+1;j<nsvcs;j+=1) {
-			for (k=0;k<list[j].numdeps;k+=1) {
-				if (!strcmp(list[j].deps[k],list[i].name)) {
-					i=j;
-					levels[nlevels-1]=i-1;
+	levels[0]=0;
+	for (i=1;i<nsvcs;i+=1) {
+		for (j=levels[nlevels-1];j<i;j+=1) {
+			for (k=0;k<list[i].numdeps;k+=1) {
+				if (!strcmp(list[i].deps[k],list[j].name)) {
 					nlevels+=1;
 					levels=(int*)realloc(levels,nlevels*sizeof(int));
-					break;
+					levels[nlevels-1]=i;
 					break;
 				}
 			}
+			if (levels[nlevels-1]==i)
+				break;
 		}
 	}
-	levels[nlevels-1]=nsvcs-1;
 }
 
 void
